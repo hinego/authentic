@@ -169,7 +169,7 @@ func (r *Authentic) LogoutHandler(ctx context.Context) error {
 	}); err != nil {
 		return err
 	}
-	if _, err := r.Cache.Remove(ctx, token); err != nil {
+	if _, err := r.Cache.Remove(ctx, token.Raw); err != nil {
 		return err
 	}
 	return errorx.NewCode(0, "Success", nil)
