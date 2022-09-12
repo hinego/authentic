@@ -2,6 +2,8 @@ package authentic
 
 import (
 	"context"
+	"encoding/json"
+	"github.com/gogf/gf/v2/container/gvar"
 	"github.com/gogf/gf/v2/frame/g"
 	"github.com/gogf/gf/v2/net/ghttp"
 	"github.com/gogf/gf/v2/os/gcache"
@@ -126,7 +128,8 @@ func (r *Authentic) LoginHandler(ctx context.Context, data map[string]any) error
 	}); err != nil {
 		return err
 	}
-	if err := r.Cache.Set(ctx, code, expire.Unix(), expire.Sub(time.Now())); err != nil {
+	data["expire"] = expire.Unix()
+	if err := r.Cache.Set(ctx, code, data, expire.Sub(time.Now())); err != nil {
 		return err
 	}
 	ret := map[string]any{
@@ -138,18 +141,28 @@ func (r *Authentic) LoginHandler(ctx context.Context, data map[string]any) error
 func (r *Authentic) Middleware(request *ghttp.Request) {
 	var token *jwt.Token
 	var err error
-	var ok bool
+	var get *gvar.Var
 	if token, err = r.parse(request.GetCtx()); err != nil {
 		request.SetError(errorx.NewCode(500, err, nil))
 		return
 	}
-	if ok, err = r.Cache.Contains(request.GetCtx(), token.Raw); err != nil {
+	var data = map[string]any{}
+	//r.Cache.Contains()
+	if get, err = r.Cache.Get(request.GetCtx(), token.Raw); err != nil {
 		request.SetError(errorx.NewCode(500, err, nil))
 		return
+	} else {
+		if !get.Bool() {
+			request.SetError(errorx.NewCode(401, ErrInvalidToken, nil))
+			return
+		}
+		if err := json.Unmarshal(get.Bytes(), &data); err != nil {
+			request.SetError(errorx.NewCode(401, err, nil))
+			return
+		}
 	}
-	if !ok {
-		request.SetError(errorx.NewCode(401, ErrInvalidToken, nil))
-		return
+	for k, v := range data {
+		request.SetParam(k, v)
 	}
 	payload := token.Claims.(jwt.MapClaims)
 	request.SetParam(Payload, payload)
@@ -187,11 +200,18 @@ func (r *Authentic) RefreshHandler(ctx context.Context) error {
 	}); err != nil {
 		return err
 	}
-	if err := r.Cache.Set(ctx, token.Raw, expire.Unix(), expire.Sub(time.Now())); err != nil {
+	var data = map[string]any{}
+	if get, err := r.Cache.Get(ctx, token.Raw); err != nil {
+		return err
+	} else if err := json.Unmarshal(get.Bytes(), &data); err != nil {
 		return err
 	}
-	data := map[string]any{
+	data["expire"] = expire.Unix()
+	if err := r.Cache.Set(ctx, token.Raw, data, expire.Sub(time.Now())); err != nil {
+		return err
+	}
+	ret := map[string]any{
 		"expire": expire.Unix(),
 	}
-	return errorx.NewCode(0, "refresh success", data)
+	return errorx.NewCode(0, "refresh success", ret)
 }
