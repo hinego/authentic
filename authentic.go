@@ -138,7 +138,7 @@ func (r *Authentic) LoginHandler(ctx context.Context, data map[string]any) error
 	}
 	return errorx.NewCode(0, "success", ret)
 }
-func (r *Authentic) Middleware(request *ghttp.Request) {
+func (r *Authentic) middleware(request *ghttp.Request, fun func(data map[string]any) bool) {
 	var token *jwt.Token
 	var err error
 	var get *gvar.Var
@@ -161,15 +161,23 @@ func (r *Authentic) Middleware(request *ghttp.Request) {
 			return
 		}
 	}
-	for k, v := range data {
-		request.SetParam(k, v)
-	}
 	payload := token.Claims.(jwt.MapClaims)
+	if fun != nil && !fun(payload) {
+		return
+	}
 	request.SetParam(Payload, payload)
 	request.SetParam(r.Key, payload[r.Key])
 	request.SetParam(TokenRaw, token.Raw)
 	request.SetParam(Token, token)
 	request.Middleware.Next()
+}
+func (r *Authentic) Middleware(request *ghttp.Request) {
+	r.middleware(request, nil)
+}
+func (r *Authentic) MiddlewareWithOption(fun func(data map[string]any) bool) func(request *ghttp.Request) {
+	return func(request *ghttp.Request) {
+		r.middleware(request, fun)
+	}
 }
 func (r *Authentic) LogoutHandler(ctx context.Context) error {
 	var err error
