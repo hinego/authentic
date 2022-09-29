@@ -163,6 +163,7 @@ func (r *Authentic) middleware(request *ghttp.Request, fun func(data map[string]
 	}
 	payload := token.Claims.(jwt.MapClaims)
 	if fun != nil && !fun(payload) {
+		request.SetError(errorx.NewCode(401, ErrForbidden, nil))
 		return
 	}
 	request.SetParam(Payload, payload)
