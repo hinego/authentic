@@ -102,7 +102,7 @@ func (r *Authentic) keyFunc(t *jwt.Token) (interface{}, error) {
 	}
 	return r.Secret, nil
 }
-func (r *Authentic) LoginHandler(ctx context.Context, data map[string]any) error {
+func (r *Authentic) CreateToken(ctx context.Context, data map[string]any) (*Context, error) {
 	var err error
 	var code string
 	token := jwt.New(r.Method)
@@ -111,32 +111,40 @@ func (r *Authentic) LoginHandler(ctx context.Context, data map[string]any) error
 		claims[key] = value
 	}
 	if _, ok := claims[r.Key]; !ok {
-		return errorx.NewCode(500, ErrMissingIdentity, nil)
+		return nil, errorx.NewCode(500, ErrMissingIdentity, nil)
 	}
 	expire := time.Now().Add(r.Expire)
 	claims["r"] = grand.Letters(8)
 	if code, err = token.SignedString(r.Secret); err != nil {
-		return errorx.NewCode(401, ErrFailedTokenCreation, nil)
+		return nil, errorx.NewCode(401, ErrFailedTokenCreation, nil)
 	}
 	token.Raw = code
-	if err = r.AddCode(&Context{
+	c := &Context{
 		Cache:   r.Cache,
 		Context: ctx,
 		Token:   token,
 		Expire:  expire,
 		Data:    data,
-	}); err != nil {
-		return err
+	}
+	if err = r.AddCode(c); err != nil {
+		return nil, err
 	}
 	data["expire"] = expire.Unix()
-	if err := r.Cache.Set(ctx, code, data, expire.Sub(time.Now())); err != nil {
+	if err = r.Cache.Set(ctx, token.Raw, data, expire.Sub(time.Now())); err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+func (r *Authentic) LoginHandler(ctx context.Context, data map[string]any) error {
+	if token, err := r.CreateToken(ctx, data); err != nil {
 		return err
+	} else {
+		ret := map[string]any{
+			"expire": token.Expire.Unix(),
+			"token":  token.Token.Raw,
+		}
+		return errorx.NewCode(0, "success", ret)
 	}
-	ret := map[string]any{
-		"expire": expire.Unix(),
-		"token":  code,
-	}
-	return errorx.NewCode(0, "success", ret)
 }
 func (r *Authentic) middleware(request *ghttp.Request, fun func(data map[string]any) bool) {
 	var token *jwt.Token
@@ -147,7 +155,6 @@ func (r *Authentic) middleware(request *ghttp.Request, fun func(data map[string]
 		return
 	}
 	var data = map[string]any{}
-	//r.Cache.Contains()
 	if get, err = r.Cache.Get(request.GetCtx(), token.Raw); err != nil {
 		request.SetError(errorx.NewCode(500, err, nil))
 		return
